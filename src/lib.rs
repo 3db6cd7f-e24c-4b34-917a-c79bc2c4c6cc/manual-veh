@@ -8,8 +8,10 @@
 extern crate lazy_static;
 
 // Modules
-mod raw;
 mod raw_offset;
+
+// Public modules
+pub mod raw;
 
 // Imports
 use crate::raw::{add_vectored_exception_handler, remove_vectored_exception_handler};
