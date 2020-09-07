@@ -5,7 +5,7 @@ authors = ["wildbook <book.wille@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-pelite = "^0.8"
+pelite = "^0.9"
 lazy_static = "^1.4"
 
 [dependencies.winapi]
