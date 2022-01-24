@@ -48,30 +48,26 @@ unsafe fn get_module_handle<T: AsRef<str>>(name: T) -> Option<*const u8> {
 
     #[cfg(target_pointer_width = "32")]
     let list_base = {
-        llvm_asm!("mov $0, fs:[30h]" : "=r"(peb) ::: "intel");
+        std::arch::asm!("mov {}, fs:[30h]", out(reg) peb);
 
         // PEB
         let x = peb;
         // Ldr
         let x = *(x.add(0x0C) as *const *const u8);
         // InInitializationOrderModuleList
-        let x = x.add(0x1C) as *const u8;
-
-        x
+        x.add(0x1C) as *const u8
     };
 
     #[cfg(target_pointer_width = "64")]
     let list_base = {
-        llvm_asm!("mov $0, gs:[60h]" : "=r"(peb) ::: "intel");
+        std::arch::asm!("mov {}, gs:[60h]", out(reg) peb);
 
         // PEB
         let x = peb;
         // Ldr
         let x = *(x.add(0x18) as *const *const u8);
         // InInitializationOrderModuleList
-        let x = x.add(0x30) as *const u8;
-
-        x
+        x.add(0x30) as *const u8
     };
 
     let mut current = list_base;

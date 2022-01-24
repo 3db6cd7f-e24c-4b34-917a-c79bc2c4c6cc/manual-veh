@@ -1,7 +1,5 @@
 // Requirements
 #![cfg(target_os = "windows")]
-// Features
-#![feature(llvm_asm)]
 
 // Macros
 #[macro_use]
@@ -103,9 +101,9 @@ mod tests {
         unsafe {
             let _veh = Veh::add(Order::First, handler);
 
-            assert_eq!(FLAG, false);
+            assert!(!FLAG);
             (std::mem::transmute::<_, fn()>(1 as *const usize))();
-            assert_eq!(FLAG, true);
+            assert!(FLAG);
         }
     }
 }
