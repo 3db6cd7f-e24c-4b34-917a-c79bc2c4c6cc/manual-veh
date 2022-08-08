@@ -1,5 +1,6 @@
 // Imports
 use crate::{raw_offset::RawOffset, PVectoredExceptionHandler};
+use once_cell::race::OnceBox;
 use std::ffi::{c_void, OsString};
 use std::os::windows::ffi::OsStringExt;
 use winapi::um::winnt::LONG;
@@ -98,8 +99,11 @@ unsafe fn get_module_handle<T: AsRef<str>>(name: T) -> Option<*const u8> {
     }
 }
 
-lazy_static! {
-    static ref VECTORED_HANDLER: VectoredHandlers = unsafe {
+static VECTORED_HANDLER: OnceBox<VectoredHandlers> = OnceBox::new();
+
+#[inline(never)]
+fn find_handlers() -> Box<VectoredHandlers> {
+    unsafe {
         // We're using continue handlers as they're less likely to be hooked/modified
         // They're calling the same function as the exception handler funcs do
         const RAVCH: &str = "RtlAddVectoredContinueHandler";
@@ -125,9 +129,9 @@ lazy_static! {
                         .windows(9)
                         .enumerate()
                         .filter_map(|(index, bytes)| match bytes {
-                            &[0xE8, b1, b2, b3, b4, 0x5D, 0xC2, _, 0x00] => Some(
-                                (i32::from_le_bytes([b1, b2, b3, b4])) + index as i32 + 5,
-                            ),
+                            &[0xE8, b1, b2, b3, b4, 0x5D, 0xC2, _, 0x00] => {
+                                Some((i32::from_le_bytes([b1, b2, b3, b4])) + index as i32 + 5)
+                            }
                             _ => None,
                         })
                         .map(|ravh| wrapper.raw_add(ravh as _))
@@ -139,9 +143,9 @@ lazy_static! {
                         .windows(5)
                         .enumerate()
                         .filter_map(|(index, bytes)| match bytes {
-                            &[0xE9, b1, b2, b3, b4] => Some(
-                                (i32::from_le_bytes([b1, b2, b3, b4])) + index as i32 + 5,
-                            ),
+                            &[0xE9, b1, b2, b3, b4] => {
+                                Some((i32::from_le_bytes([b1, b2, b3, b4])) + index as i32 + 5)
+                            }
                             _ => None,
                         })
                         .map(|ravh| wrapper.raw_add(ravh as _))
@@ -162,20 +166,21 @@ lazy_static! {
                         add: ra,
                         remove: rr,
                     }),
-                    _ => None
+                    _ => None,
                 }
             })
             .unwrap()
-    };
+            .into()
+    }
 }
 
 pub unsafe fn add_vectored_exception_handler(
     first_handler: bool,
     vectored_handler: PVectoredExceptionHandler,
 ) -> *const c_void {
-    (VECTORED_HANDLER.add)(first_handler as _, vectored_handler, 0)
+    (VECTORED_HANDLER.get_or_init(find_handlers).add)(first_handler as _, vectored_handler, 0)
 }
 
 pub unsafe fn remove_vectored_exception_handler(vectored_handler: *const c_void) -> *const c_void {
-    (VECTORED_HANDLER.remove)(vectored_handler, 0)
+    (VECTORED_HANDLER.get_or_init(find_handlers).remove)(vectored_handler, 0)
 }

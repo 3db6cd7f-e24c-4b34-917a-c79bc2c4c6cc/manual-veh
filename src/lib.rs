@@ -1,10 +1,6 @@
 // Requirements
 #![cfg(target_os = "windows")]
 
-// Macros
-#[macro_use]
-extern crate lazy_static;
-
 // Modules
 mod raw_offset;
 
