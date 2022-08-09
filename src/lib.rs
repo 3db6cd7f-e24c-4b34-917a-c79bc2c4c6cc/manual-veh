@@ -1,5 +1,5 @@
 // Requirements
-#![cfg(target_os = "windows")]
+#![cfg(windows)]
 
 // Modules
 mod raw_offset;
