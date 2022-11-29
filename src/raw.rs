@@ -1,9 +1,9 @@
+use crate::RawExceptionHandler;
 // Imports
-use crate::{raw_offset::RawOffset, PVectoredExceptionHandler};
+use crate::raw_offset::RawOffset;
 use once_cell::race::OnceBox;
 use std::ffi::{c_void, OsString};
 use std::os::windows::ffi::OsStringExt;
-use winapi::um::winnt::LONG;
 
 // Architecture-specific imports
 #[cfg(target_pointer_width = "32")]
@@ -11,16 +11,17 @@ use pelite::pe32::{exports::GetProcAddress, PeView};
 #[cfg(target_pointer_width = "64")]
 use pelite::pe64::{exports::GetProcAddress, PeView};
 
+type Handle = *const c_void;
+
 // Type aliases
 type FnRtlpAddVectoredHandler = unsafe extern "fastcall" fn(
-    FirstHandler: LONG,
-    VectoredHandler: PVectoredExceptionHandler,
-    handler_type: LONG,
-) -> *const c_void;
-type FnRtlpRemoveVectoredHandler = unsafe extern "fastcall" fn(
-    VectoredHandlerHandle: *const c_void,
-    handler_type: LONG,
-) -> *const c_void;
+    FirstHandler: i32,
+    VectoredHandler: RawExceptionHandler,
+    handler_type: i32,
+) -> Handle;
+
+type FnRtlpRemoveVectoredHandler =
+    unsafe extern "fastcall" fn(VectoredHandlerHandle: Handle, handler_type: i32) -> u8;
 
 // Structs
 #[repr(C)]
@@ -176,11 +177,11 @@ fn find_handlers() -> Box<VectoredHandlers> {
 
 pub unsafe fn add_vectored_exception_handler(
     first_handler: bool,
-    vectored_handler: PVectoredExceptionHandler,
+    vectored_handler: RawExceptionHandler,
 ) -> *const c_void {
     (VECTORED_HANDLER.get_or_init(find_handlers).add)(first_handler as _, vectored_handler, 0)
 }
 
-pub unsafe fn remove_vectored_exception_handler(vectored_handler: *const c_void) -> *const c_void {
+pub unsafe fn remove_vectored_exception_handler(vectored_handler: *const c_void) -> u8 {
     (VECTORED_HANDLER.get_or_init(find_handlers).remove)(vectored_handler, 0)
 }

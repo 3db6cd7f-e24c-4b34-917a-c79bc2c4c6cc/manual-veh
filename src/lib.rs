@@ -9,12 +9,9 @@ pub mod raw;
 
 // Imports
 use crate::raw::{add_vectored_exception_handler, remove_vectored_exception_handler};
-use std::ffi::c_void;
-use winapi::um::winnt::{LONG, PEXCEPTION_POINTERS};
+use std::{ffi::c_void, marker::PhantomData};
 
-// Public type aliases
-pub type PVectoredExceptionHandler =
-    unsafe extern "system" fn(ExceptionPointers: PEXCEPTION_POINTERS) -> LONG;
+type RawExceptionHandler = unsafe extern "system" fn(*mut c_void) -> i32;
 
 // This is essentially just a boolean with different names
 #[repr(u8)]
@@ -24,15 +21,41 @@ pub enum Order {
 }
 
 // Wrap the pointer/handle returned by `add_vectored_exception_handler`
-pub struct Veh(*const c_void);
+pub struct Veh<T>(*const c_void, PhantomData<T>);
 
-impl Drop for Veh {
+impl<T> Drop for Veh<T> {
     fn drop(&mut self) {
         unsafe { remove_vectored_exception_handler(self.0) };
     }
 }
 
-impl Veh {
+pub type VehVoid = Veh<c_void>;
+
+#[cfg(feature = "impl-winapi")]
+pub type VehWinapi = Veh<winapi::um::winnt::EXCEPTION_POINTERS>;
+
+#[cfg(feature = "impl-windows")]
+pub type VehWindows = Veh<windows_sys::Win32::System::Diagnostics::Debug::EXCEPTION_POINTERS>;
+
+impl<T> Veh<T> {
+    /// # Safety
+    /// The function passed as `handler` *must* be `unsafe extern "system" fn(*mut T) -> i32`,
+    /// where T is a type that matches the Windows API's `EXCEPTION_POINTERS` type.
+    ///
+    /// This function will never directly cause undefined behaviour, but the handlers it registers
+    /// might very well cause UB if they're not written correctly. Calling this function is
+    /// therefore unsafe, as it might affect the program in unexpected ways if the caller doesn't
+    /// properly handle exceptions it catches.
+    ///
+    /// This registers a function to be called when an exception occurs.
+    /// Be sure that you know what you're doing, and know that a crash in an exception handler
+    /// will trigger a new exception, calling the exception handler chain all over again.
+    pub unsafe fn add_raw(order: Order, handler: usize) -> Self {
+        Veh(raw_add(order, handler), PhantomData)
+    }
+}
+
+impl Veh<c_void> {
     /// # Safety
     /// This function will never directly cause undefined behaviour, but the handlers it registers
     /// might very well cause UB if they're not written correctly. Calling this function is
@@ -42,11 +65,59 @@ impl Veh {
     /// This registers a function to be called when an exception occurs.
     /// Be sure that you know what you're doing, and know that a crash in an exception handler
     /// will trigger a new exception, calling the exception handler chain all over again.
-    pub unsafe fn add(order: Order, handler: PVectoredExceptionHandler) -> Veh {
-        match order {
-            Order::First => Veh(add_vectored_exception_handler(true, handler)),
-            Order::Last => Veh(add_vectored_exception_handler(false, handler)),
-        }
+    pub unsafe fn add(
+        order: Order,
+        handler: unsafe extern "system" fn(*mut c_void) -> i32,
+    ) -> Self {
+        Veh(raw_add(order, handler as _), PhantomData)
+    }
+}
+
+#[cfg(feature = "impl-winapi")]
+impl VehWinapi {
+    /// # Safety
+    /// This function will never directly cause undefined behaviour, but the handlers it registers
+    /// might very well cause UB if they're not written correctly. Calling this function is
+    /// therefore unsafe, as it might affect the program in unexpected ways if the caller doesn't
+    /// properly handle exceptions it catches.
+    ///
+    /// This registers a function to be called when an exception occurs.
+    /// Be sure that you know what you're doing, and know that a crash in an exception handler
+    /// will trigger a new exception, calling the exception handler chain all over again.
+    pub unsafe fn add(
+        order: Order,
+        handler: unsafe extern "system" fn(*mut winapi::um::winnt::EXCEPTION_POINTERS) -> i32,
+    ) -> Self {
+        Veh(raw_add(order, handler as _), PhantomData)
+    }
+}
+
+#[cfg(feature = "impl-windows")]
+impl VehWindows {
+    /// # Safety
+    /// This function will never directly cause undefined behaviour, but the handlers it registers
+    /// might very well cause UB if they're not written correctly. Calling this function is
+    /// therefore unsafe, as it might affect the program in unexpected ways if the caller doesn't
+    /// properly handle exceptions it catches.
+    ///
+    /// This registers a function to be called when an exception occurs.
+    /// Be sure that you know what you're doing, and know that a crash in an exception handler
+    /// will trigger a new exception, calling the exception handler chain all over again.
+    pub unsafe fn add(
+        order: Order,
+        handler: unsafe extern "system" fn(
+            *mut windows_sys::Win32::System::Diagnostics::Debug::EXCEPTION_POINTERS,
+        ) -> i32,
+    ) -> Self {
+        Veh(raw_add(order, handler as _), PhantomData)
+    }
+}
+
+unsafe fn raw_add(order: Order, handler: usize) -> *const c_void {
+    let handler = std::mem::transmute(handler);
+    match order {
+        Order::First => add_vectored_exception_handler(true, handler),
+        Order::Last => add_vectored_exception_handler(false, handler),
     }
 }
 
@@ -56,7 +127,7 @@ mod tests {
     use winapi::{
         um::{
             minwinbase::EXCEPTION_ACCESS_VIOLATION,
-            winnt::{LONG, PEXCEPTION_POINTERS},
+            winnt::{EXCEPTION_POINTERS, LONG, PEXCEPTION_POINTERS},
         },
         vc::excpt::{EXCEPTION_CONTINUE_EXECUTION, EXCEPTION_CONTINUE_SEARCH},
     };
@@ -95,7 +166,7 @@ mod tests {
         }
 
         unsafe {
-            let _veh = Veh::add(Order::First, handler);
+            let _veh = Veh::<EXCEPTION_POINTERS>::add(Order::First, handler);
 
             assert!(!FLAG);
             (std::mem::transmute::<_, fn()>(1 as *const usize))();
