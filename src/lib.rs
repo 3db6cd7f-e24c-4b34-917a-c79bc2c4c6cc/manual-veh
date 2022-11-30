@@ -107,7 +107,7 @@ impl VehWindows {
         order: Order,
         handler: unsafe extern "system" fn(
             *mut windows_sys::Win32::System::Diagnostics::Debug::EXCEPTION_POINTERS,
-        ) -> i32,
+        ) -> windows_sys::Win32::System::Kernel::EXCEPTION_DISPOSITION,
     ) -> Self {
         Veh(raw_add(order, handler as _), PhantomData)
     }
